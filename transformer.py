@@ -128,8 +128,8 @@ class Transformer(torch.nn.Module):  # 继承 torch 的 Module
     def forward(self, din):
         nl_feature_0, nl_map_0 = self.nl_1(din.unsqueeze(1), return_nl_map=True)
         feature_1 = self.dr(F.relu(self.BN1(self.fc1(nl_feature_0.squeeze(1)))))  #
-        # nl_feature_1, nl_map_1 = self.nl_1(feature_1.unsqueeze(1), return_nl_map=True)
-        # # feature_2 = self.dr(F.relu(self.BN2(self.fc2(nl_feature_1.squeeze(1)))))
+        nl_feature_1, nl_map_1 = self.nl_1(feature_1.unsqueeze(1), return_nl_map=True)
+        feature_2 = self.dr(F.relu(self.BN2(self.fc2(nl_feature_1.squeeze(1)))))
         # # nl_feature_2, nl_map_2 = self.nl_2(feature_2.unsqueeze(1), return_nl_map=True)
         # # feature_3 = self.dr(F.relu(self.BN3(self.fc3(nl_feature_2.squeeze(1))))) #
         # # nl_feature_3, nl_map_3 = self.nl_3(feature_3.unsqueeze(1), return_nl_map=True)
@@ -139,8 +139,7 @@ class Transformer(torch.nn.Module):  # 继承 torch 的 Module
         # # feature_5 = self.dr(F.relu(self.BN5(self.fc5(nl_feature_4.squeeze(1))))) #
         # # nl_feature_5, nl_map_5 = self.nl_5(feature_5.unsqueeze(1), return_nl_map=True)
         # dout = self.fc(nl_feature_1.squeeze(1))  #
-        dout = self.ac(self.fc(feature_1))  #
-        # # 输出是概率分布
+        dout = self.ac(self.fc(feature_2))  #
         return dout, nl_map_0
 def test_model_thres(model, test_loader, thres_val=0.5,trg_label=1):
     # loss_fn = torch.nn.CrossEntropyLoss()
