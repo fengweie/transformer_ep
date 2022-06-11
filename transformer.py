@@ -26,6 +26,7 @@ from utils import *
 from sklearn.metrics import roc_auc_score
 import random
 import time
+import copy
 from sklearn.metrics import confusion_matrix
 import torch.backends.cudnn as cudnn
 from torch.utils.data import TensorDataset
@@ -107,7 +108,7 @@ class Transformer(torch.nn.Module):  # 继承 torch 的 Module
         self.BN3 = nn.BatchNorm1d(300)
         self.BN4 = nn.BatchNorm1d(300)
         self.BN5 = nn.BatchNorm1d(300)
-        self.dr = nn.Dropout(0.003)
+        self.dr = nn.Dropout(0.1)
         self.ac = nn.Sigmoid()
         self._initialize_weights()
 
@@ -126,10 +127,14 @@ class Transformer(torch.nn.Module):  # 继承 torch 的 Module
                 m.bias.data.zero_()
 
     def forward(self, din):
+        # feature_1 = self.dr(F.relu(self.BN1(self.fc1(din))))  # 使用 relu 激活函数
+        #
+        # dout = self.ac(self.fc(feature_1)) # 输出层使用 softmax 激活函数
+
         nl_feature_0, nl_map_0 = self.nl_1(din.unsqueeze(1), return_nl_map=True)
         feature_1 = self.dr(F.relu(self.BN1(self.fc1(nl_feature_0.squeeze(1)))))  #
-        nl_feature_1, nl_map_1 = self.nl_1(feature_1.unsqueeze(1), return_nl_map=True)
-        feature_2 = self.dr(F.relu(self.BN2(self.fc2(nl_feature_1.squeeze(1)))))
+        # nl_feature_1, nl_map_1 = self.nl_1(feature_1.unsqueeze(1), return_nl_map=True)
+        # # feature_2 = self.dr(F.relu(self.BN2(self.fc2(nl_feature_1.squeeze(1)))))
         # # nl_feature_2, nl_map_2 = self.nl_2(feature_2.unsqueeze(1), return_nl_map=True)
         # # feature_3 = self.dr(F.relu(self.BN3(self.fc3(nl_feature_2.squeeze(1))))) #
         # # nl_feature_3, nl_map_3 = self.nl_3(feature_3.unsqueeze(1), return_nl_map=True)
@@ -139,7 +144,8 @@ class Transformer(torch.nn.Module):  # 继承 torch 的 Module
         # # feature_5 = self.dr(F.relu(self.BN5(self.fc5(nl_feature_4.squeeze(1))))) #
         # # nl_feature_5, nl_map_5 = self.nl_5(feature_5.unsqueeze(1), return_nl_map=True)
         # dout = self.fc(nl_feature_1.squeeze(1))  #
-        dout = self.ac(self.fc(feature_2))  #
+        dout = self.ac(self.fc(feature_1))  #
+        # # 输出是概率分布
         return dout, nl_map_0
 def test_model_thres(model, test_loader, thres_val=0.5,trg_label=1):
     # loss_fn = torch.nn.CrossEntropyLoss()
@@ -148,6 +154,7 @@ def test_model_thres(model, test_loader, thres_val=0.5,trg_label=1):
     loss_fn = torch.nn.CrossEntropyLoss()
     all_preds = []
     all_labels = []
+    all_data = []
     with torch.no_grad():
         for i, (batch, labels) in enumerate(test_loader):
             src = batch.type(torch.float32)  # Turn into a batch
@@ -164,11 +171,13 @@ def test_model_thres(model, test_loader, thres_val=0.5,trg_label=1):
                 # loss = loss_fn(preds, labels.type(torch.LongTensor).cuda())
             all_preds.append(preds_after)
             all_labels.append(labels)
+            all_data.append(src)
 
             total_loss += loss.data
 
     real_results = torch.cat(all_labels, dim=0).flatten().type(torch.float32).cpu().numpy()  ## Flat tensor
     pred_results = torch.cat(all_preds, dim=0).flatten().type(torch.float32).cpu().detach().numpy()
+    data_results = torch.cat(all_data, dim=0).flatten().type(torch.float32).cpu().detach().numpy()
     print(real_results.shape, pred_results.shape)
     test_AUC_ROC = roc_auc_score(real_results, pred_results)
     pred_res = pred_results>=thres_val
@@ -263,9 +272,9 @@ use_age_category = True
 # ####################################
 if use_age_category:
     print("use use_age_category")
-    all_path = '/mnt/workdir/fengwei/transformer_master-master/data/validation/all_single_all_cols_v8.csv'
-    chongqing_path = '/mnt/workdir/fengwei/transformer_master-master/data/validation/chongqing_single_all_cols_v8.csv'
-    chongqing_path_2 = '/mnt/workdir/fengwei/transformer_master-master/data/validation/chongqing_single_all_cols_v8_2.csv'
+    all_path = '/mnt/workdir/fengwei/transformer_master-master/data/validation/toben/all_single_all_cols_v8.csv'
+    chongqing_path = '/mnt/workdir/fengwei/transformer_master-master/data/validation/toben/chongqing_single_all_cols_v8.csv'
+    chongqing_path_2 = '/mnt/workdir/fengwei/transformer_master-master/data/validation/toben/chongqing_single_all_cols_v8_2.csv'
 else:
     print("do not use use_age_category")
     all_path = '/mnt/workdir/fengwei/transformer_master-master/data/validation/age_no_three/all_single_all_cols_v8.csv'
@@ -325,34 +334,90 @@ print('Malaysiadata',Malaysiadata['psuedo_outcome'].value_counts())
 print('Chinadata',Chinadata['psuedo_outcome'].value_counts())
 print('chongqingdata',chongqingdata['psuedo_outcome'].value_counts())
 # traindata = pd.concat([Glasgowdata,Chinadata,perthdata,Malaysiadata])
-cross_valid = False
+cross_valid = True
 use_resample = False
 use_smote = True
 plot_map = True
+add_previous = True
 if cross_valid:
     traindata = Glasgowdata
 else:
     traindata = pd.concat([Malaysiadata,Glasgowdata,Chinadata,perthdata,chongqingdata])
 #
+
+# correlation between target and features
+# traindata.corr().loc['psuedo_outcome'].plot(kind='barh', figsize=(4,10))
+
+# # drop uncorrelated numeric features (threshold <0.2)
+# corr = abs(traindata.corr().loc['psuedo_outcome'])
+# corr = corr[corr<0.012]
+# cols_to_drop = corr.index.to_list()
+# print("drop_columns:",cols_to_drop)
+# traindata = traindata.drop(cols_to_drop, axis=1)
+# sns.set(rc={'figure.figsize':(36,30)})
+# sns.heatmap(traindata.corr(),
+#           annot=True,
+#           linewidths=.5,
+#           center=0,
+#           cbar=False,
+#           cmap="PiYG")
+# # plt.show()
+#
+# plt.savefig("nl_map_vis/corr_bar.pdf", dpi=300, bbox_inches='tight')
 print('all_data',traindata['psuedo_outcome'].value_counts())
 externaldata = Chinadata
 # externaldata = pd.concat([Glasgowdata,Chinadata,perthdata,Malaysiadata])
 print('externaldata',externaldata['psuedo_outcome'].value_counts())
 # print("traindata.columns:",traindata.columns)
 X_all, y_all = traindata.iloc[:,2:-1],traindata.iloc[:,-1]
-# print(traindata.columns)
+
+# from sklearn.decomposition import PCA
+# pca=PCA(n_components=10) #0.95 here refers that the total variance explained by the components must be atleast 95%
+# X_all=pca.fit_transform(X_all)
+# X_all=pd.DataFrame(X_all)
+# print("input_dim",X_all.shape[1])
+# # print(traindata.columns)
 if cross_valid:
     X_test, y_test = X_all, y_all
+    # ###################add another data
+    # if add_previous:
+    #     X_previous = copy.copy(X_all)
+    #     y_previous = copy.copy(y_all)
+    #     X_previous.iloc[:, -7:] = 0
+    #     y_previous.iloc[:] = 0
+    #     X_all = pd.concat([X_all, X_previous])
+    #     y_all = pd.concat([y_all, y_previous])
     if use_smote:
-        X_train_smote, y_train_smote = sm.fit_resample(X_all, y_all)
+        from imblearn.over_sampling import RandomOverSampler
+
+        oversample = RandomOverSampler(sampling_strategy='not majority')
+        X_train_smote, y_train_smote = oversample.fit_resample(X_all, y_all)
     else:
         X_train_smote, y_train_smote = X_all, y_all
 else:
     X_train, X_test, y_train, y_test = train_test_split(X_all, y_all, test_size=0.2, stratify=y_all)
+    ###################add another data
+    # if add_previous:
+    #     X_previous = copy.copy(X_train)
+    #     y_previous = copy.copy(y_train)
+    #     X_previous.iloc[:, -7:] = 0
+    #     y_previous.iloc[:] = 0
+    #     X_train = pd.concat([X_train, X_previous])
+    #     y_train = pd.concat([y_train, y_previous])
     if use_smote:
-        X_train_smote, y_train_smote = sm.fit_resample(X_train, y_train)
+        from imblearn.over_sampling import RandomOverSampler
+
+        oversample = RandomOverSampler(sampling_strategy='not majority')
+        X_train_smote, y_train_smote = oversample.fit_resample(X_train, y_train)
+        # X_train_smote, y_train_smote = sm.fit_resample(X_train, y_train)
+        # from sklearn.preprocessing import StandardScaler
+        #
+        # scaler = StandardScaler()
+        # X_train_smote = scaler.fit_transform(X_train_smote)
     else:
         X_train_smote, y_train_smote = X_train, y_train
+print("训练集中正负类数目：",(y_train_smote.values==1).sum(),(y_train_smote.values==0).sum())
+print("测试集中正负类数目：",(y_test.values==1).sum(),(y_test.values==0).sum())
 X_external, y_external = externaldata.iloc[:,2:-1],externaldata.iloc[:,-1]
 input_dim = X_all.shape[1]
 
@@ -360,36 +425,25 @@ train_dataset = TensorDataset(torch.Tensor(X_train_smote.to_numpy().astype(float
                               torch.Tensor(y_train_smote.values))  # 相当于zip函数
 from torch.utils.data.sampler import WeightedRandomSampler
 
-weights = [2 if label == 1 else 1 for data, label in train_dataset]
-sampler = WeightedRandomSampler(weights, num_samples=len(train_dataset), replacement=True)
-if use_resample:
-    trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
-                                              sampler=sampler
-                                              # shuffle=True
-                                              , num_workers=10)
-    if not cross_valid:
-        train_val_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
-                                                  shuffle=True
-                                                  , num_workers=10)
-elif use_smote:
-    trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
-                                              # sampler=sampler
-                                              shuffle=True
-                                              , num_workers=10)
-    if not cross_valid:
+# weights = [2 if label == 1 else 1 for data, label in train_dataset]
+# sampler = WeightedRandomSampler(weights, num_samples=len(train_dataset), replacement=True)
+# if use_resample:
+#     trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
+#                                               sampler=sampler
+#                                               , num_workers=10)
+trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
+                                          shuffle=True
+                                          , num_workers=10)
+if not cross_valid:
+    if use_smote:
         train_val_dataset = TensorDataset(torch.Tensor(X_train.to_numpy().astype(float)),
-                                      torch.Tensor(y_train.values))  # 相当于zip函数
+                                          torch.Tensor(y_train.values))  # 相当于zip函数
         train_val_loader = torch.utils.data.DataLoader(train_val_dataset, batch_size=batch_size,
-                                                  # sampler=sampler
-                                                  shuffle=True
-                                                  , num_workers=10)
-else:
-    trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
-                                              # sampler=sampler
-                                              shuffle=True
-                                              , num_workers=10)
-    if not cross_valid:
+                                                       shuffle=True
+                                                       , num_workers=10)
+    else:
         train_val_loader = trainloader
+
 test_dataset = TensorDataset(torch.Tensor(X_test.to_numpy().astype(float))
                                ,torch.Tensor(y_test.values))
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=10)
@@ -440,7 +494,7 @@ for p in model.parameters():
 #     elif isinstance(m, nn.Linear):
 #         nn.init.constant_(m.bias, 0)
 
-optimizer = torch.optim.SGD(model.parameters(), lr=1e-2,weight_decay=0.05)
+optimizer = torch.optim.SGD(model.parameters(), lr=1e-1,weight_decay=0.01)
 
 scheduler = StepLR(optimizer, step_size=num_steps, gamma=0.65)
 test_loss_log, train_loss_log, train_acc_log, test_acc_log = [], [], [], []
@@ -449,8 +503,8 @@ best_test_weighted_acc = 0
 best_test_AUC = 0
 # best_external_Weighted_Acc = 0
 ctr = 0
-epochs = 4
-if use_resample or use_smote:
+epochs = 40
+if use_smote:
     weight_CE = torch.FloatTensor([1,1]).cuda()
 else:
     weight_CE = torch.FloatTensor([1, 2]).cuda()
@@ -508,7 +562,7 @@ for epoch in range(epochs):
                                                                                   trg_label=trg_label)
 
     if (test_AUC_ROC > best_test_AUC):
-        save_nl_map(test_loader, model,use_age_category)
+        # save_nl_map(test_loader, model,use_age_category)
         best_test_AUC = test_AUC_ROC
         best_model = copy.deepcopy(model)
         # if (perth_val):
@@ -533,7 +587,8 @@ if cross_valid:
     for i in np.linspace(0, 1, 21):
         # for i in np.linspace(0.4,0.8,9): # Faster for 0.05 intervals, originally 0.01
 
-        test_sens, test_spec, test_accuracy_calculated,test_weighted_acc,test_AUC_ROC,test_loss,real_results, pred_results\
+        test_sens, test_spec, test_accuracy_calculated,test_weighted_acc,\
+        test_AUC_ROC,test_loss,real_results, pred_results\
             = test_model_thres(best_model, test_loader, thres_val=i,
                                                        trg_label=trg_label)
         train_weight_arr.append(test_weighted_acc)
@@ -627,7 +682,8 @@ if cross_valid:
     for i in np.linspace(0, 1, 21):
         # for i in np.linspace(0.4,0.8,9): # Faster for 0.05 intervals, originally 0.01
 
-        perth_sens, perth_spec, perth_accuracy_calculated,perth_weighted_acc,perth_AUC_ROC,perth_loss,real_results, pred_results\
+        perth_sens, perth_spec, perth_accuracy_calculated,perth_weighted_acc,\
+        perth_AUC_ROC,perth_loss,real_results, pred_results\
             = test_model_thres(best_model, perth_loader, thres_val=i,
                                                        trg_label=trg_label)
         print("Threshold: {0:.2f}".format(i),
@@ -674,7 +730,8 @@ if cross_valid:
     for i in np.linspace(0, 1, 21):
         # for i in np.linspace(0.4,0.8,9): # Faster for 0.05 intervals, originally 0.01
 
-        malaysia_sens, malaysia_spec, malaysia_accuracy_calculated,malaysia_weighted_acc,malaysia_AUC_ROC,malaysia_loss,real_results, pred_results\
+        malaysia_sens, malaysia_spec, malaysia_accuracy_calculated,malaysia_weighted_acc,\
+        malaysia_AUC_ROC,malaysia_loss,real_results, pred_results\
             = test_model_thres(best_model, malaysia_loader, thres_val=i,
                                                        trg_label=trg_label)
         print("Threshold: {0:.2f}".format(i),
@@ -823,8 +880,9 @@ else:
     for i in np.linspace(0, 1, 21):
         # for i in np.linspace(0.4,0.8,9): # Faster for 0.05 intervals, originally 0.01
 
-        train_sens, train_spec, train_accuracy_calculated,train_weighted_acc,train_AUC_ROC,train_loss,real_results, pred_results\
-            = test_model_thres(model, trainloader, thres_val=i,
+        train_sens, train_spec, train_accuracy_calculated,train_weighted_acc,train_AUC_ROC,\
+        train_loss,real_results, pred_results\
+            = test_model_thres(model, train_val_loader, thres_val=i,
                                                        trg_label=trg_label)
         train_weight_arr.append(train_weighted_acc)
         train_thres_arr.append(i)
@@ -916,8 +974,9 @@ else:
     for i in np.linspace(0, 1, 21):
         # for i in np.linspace(0.4,0.8,9): # Faster for 0.05 intervals, originally 0.01
 
-        test_sens, test_spec, test_accuracy_calculated, test_weighted_acc, test_AUC_ROC, test_loss,real_results, pred_results \
-            = test_model_thres(model, test_loader, thres_val=i,
+        test_sens, test_spec, test_accuracy_calculated, test_weighted_acc, \
+        test_AUC_ROC, test_loss,real_results, pred_results \
+            = test_model_thres(best_model, test_loader, thres_val=i,
                                trg_label=trg_label)
         print("Threshold: {0:.2f}".format(i),
               "\ttest_Sens: {0:.2f}".format(test_sens),
@@ -925,6 +984,11 @@ else:
               "\ttest_Acc: {0:.2f}".format(test_accuracy_calculated),
               '\ttest_Weighted Acc: {0:.2f}'.format(test_weighted_acc),
               "\ttest_AUC: {0:.2f}".format(test_AUC_ROC))
+    # suc = real_results[pred_results>0.5]
+    # unsuc = real_results[pred_results<=0.5]
+    # print(len(suc),len(unsuc))
+    # print('all_data_', all_data['pretrt_sz_5'].value_counts())
+    # print("psy", all_data['psy'].value_counts())
     if plot_map:
         # plt.cla()
         #
